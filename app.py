@@ -140,7 +140,7 @@ import os
 
 # TomTom API key (stored securely in the app config)
 # In production, use environment variables: os.getenv('TOMTOM_API_KEY')
-app.config['TOMTOM_API_KEY'] = '0TQGxzg4nBU5qP4Du9YkaQAkKJ1OvNnd'
+app.config['TOMTOM_API_KEY'] = 'YOUR_KEY'
 
 @app.route('/')
 def home():
