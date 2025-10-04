@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hospital Locator - Path2Care</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.23.0/maps/maps.css">
+    <style>
+        #map {
+            height: 500px;
+            width: 100%;
+            border-radius: 10px;
+        }
+        .hospital-card {
+            margin-bottom: 15px;
+            transition: transform 0.3s;
+        }
+        .hospital-card:hover {
+            transform: translateY(-5px);
+        }
+        .search-section {
+            background-color: #f8f9fa;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .results-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">Path2Care</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/predict">Disease Prediction</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/skin_diseases">Skin Disease Detection</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/hospitals">Hospital Locator</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hospital Locator Section -->
+    <div class="container py-5">
+        <h2 class="mb-4">Find Hospitals Near You</h2>
+        
+        <div class="search-section">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Location</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="location" placeholder="Enter city or address">
+                            <button class="btn btn-outline-secondary" type="button" id="useCurrentLocation">
+                                <i class="bi bi-geo-alt"></i> Current Location
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="specialization" class="form-label">Specialization (Optional)</label>
+                        <select class="form-select" id="specialization">
+                            <option value="">All Hospitals</option>
+                            {% for disease in diseases %}
+                            <option value="{{ disease }}">{{ disease }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <button id="searchBtn" class="btn btn-primary">Search Hospitals</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-8">
+                <div id="map"></div>
+            </div>
+            <div class="col-lg-4">
+                <h4>Nearby Hospitals</h4>
+                <div id="hospitalsList" class="results-list">
+                    <!-- Hospital results will be displayed here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.23.0/maps/maps-web.min.js"></script>
+    <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.23.0/services/services-web.min.js"></script>
+    <script>
+        // Map initialization
+        let map;
+        let markers = [];
+        const defaultLocation = { lat: 20.5937, lng: 78.9629 }; // Center of India
+
+        // Initialize the map
+        function initMap(center = defaultLocation) {
+            if (map) {
+                map.remove();
+            }
+
+            map = tt.map({
+                key: '{{ tomtom_api_key }}',
+                container: 'map',
+                center: [center.lng, center.lat],
+                zoom: 10
+            });
+
+            // Add controls to the map
+            map.addControl(new tt.FullscreenControl());
+            map.addControl(new tt.NavigationControl());
+        }
+
+        // Get current location
+        document.getElementById('useCurrentLocation').addEventListener('click', function() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const currentLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    
+                    document.getElementById('location').value = 'Current Location';
+                    initMap(currentLocation);
+                    searchHospitals(currentLocation);
+                }, function() {
+                    alert('Unable to get your location. Please enter a location manually.');
+                });
+            } else {
+                alert('Geolocation is not supported by your browser. Please enter a location manually.');
+            }
+        });
+
+        // Search for hospitals
+        document.getElementById('searchBtn').addEventListener('click', function() {
+            const location = document.getElementById('location').value;
+            const specialization = document.getElementById('specialization').value;
+            
+            if (location === 'Current Location' && map) {
+                const center = map.getCenter();
+                searchHospitals({
+                    lat: center.lat,
+                    lng: center.lng
+                }, specialization);
+            } else if (location) {
+                // Geocode the entered location
+                fetch(`/geocode?location=${encodeURIComponent(location)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            initMap(data.location);
+                            searchHospitals(data.location, specialization);
+                        } else {
+                            alert('Location not found. Please try a different location.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('An error occurred while searching for the location.');
+                    });
+            } else {
+                alert('Please enter a location or use your current location.');
+            }
+        });
+
+        // Search for hospitals near the specified location
+        function searchHospitals(location, specialization = '') {
+            // Clear existing markers
+            markers.forEach(marker => marker.remove());
+            markers = [];
+            
+            // Show loading state
+            document.getElementById('hospitalsList').innerHTML = '<p>Searching for hospitals...</p>';
+            
+            // Make API request to backend
+            fetch(`/search_hospitals?lat=${location.lat}&lng=${location.lng}&specialization=${encodeURIComponent(specialization)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayHospitals(data.hospitals, location);
+                    } else {
+                        document.getElementById('hospitalsList').innerHTML = '<p>No hospitals found. Please try a different location or specialization.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('hospitalsList').innerHTML = '<p>An error occurred while searching for hospitals.</p>';
+                });
+        }
+
+        // Display hospitals on the map and in the list
+        function displayHospitals(hospitals, userLocation) {
+            const hospitalsList = document.getElementById('hospitalsList');
+            hospitalsList.innerHTML = '';
+            
+            if (hospitals.length === 0) {
+                hospitalsList.innerHTML = '<p>No hospitals found. Please try a different location or specialization.</p>';
+                return;
+            }
+            
+            hospitals.forEach((hospital, index) => {
+                // Add marker to map
+                const marker = new tt.Marker()
+                    .setLngLat([hospital.longitude, hospital.latitude])
+                    .addTo(map);
+                
+                // Create popup
+                const popup = new tt.Popup({ offset: 30 })
+                    .setHTML(`<h6>${hospital.name}</h6><p>${hospital.address}</p>`);
+                
+                marker.setPopup(popup);
+                markers.push(marker);
+                
+                // Add to list
+                const hospitalCard = document.createElement('div');
+                hospitalCard.className = 'card hospital-card';
+                hospitalCard.innerHTML = `
+                    <div class="card-body">
+                        <h5 class="card-title">${hospital.name}</h5>
+                        <h6 class="card-subtitle mb-2 text-muted">${hospital.distance.toFixed(2)} km away</h6>
+                        <p class="card-text">${hospital.address}</p>
+                        <a href="https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${hospital.latitude},${hospital.longitude}" 
+                           class="btn btn-sm btn-outline-primary" target="_blank">Get Directions</a>
+                    </div>
+                `;
+                
+                hospitalCard.addEventListener('click', function() {
+                    map.flyTo({
+                        center: [hospital.longitude, hospital.latitude],
+                        zoom: 14
+                    });
+                    marker.togglePopup();
+                });
+                
+                hospitalsList.appendChild(hospitalCard);
+            });
+        }
+
+        // Initialize map when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+        });
+    </script>
+</body>
+</html>
