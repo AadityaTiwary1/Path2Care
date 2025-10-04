@@ -152,5 +152,3 @@ This project is for educational purposes. Please ensure compliance with local re
 For technical issues or questions about the application, please open an issue in the repository.
 
 ---
-
-**Built with ❤️ for healthcare innovation**
